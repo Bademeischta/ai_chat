@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Algorithm Battle Royale</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { margin: 0; background: #111; color: #eee; font-family: sans-serif; overflow: hidden; }
+        #canvas { display: block; background: #000; }
+        #hud { position: absolute; top: 10px; left: 10px; pointer-events: none; text-shadow: 1px 1px 2px #000; }
+        #leaderboard { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; font-size: 14px; }
+        .algo-label { position: absolute; font-size: 10px; transform: translate(-50%, -100%); pointer-events: none; text-align: center; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+        <div>Tick: <span id="tick">0</span> | Alive: <span id="alive">0</span></div>
+        <div>Best Fitness: <span id="best">0</span></div>
+    </div>
+    <div id="leaderboard">
+        <strong>Leaderboard</strong>
+        <div id="lb-list"></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const socket = io();
+
+        let state = { bots: [], food: [], tick: 0 };
+        let prevState = { bots: [], food: [] };
+        let lastUpdateTime = Date.now();
+        const ARENA_SIZE = 2000;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        socket.on('update', (data) => {
+            prevState = state;
+            state = data;
+            lastUpdateTime = Date.now();
+            document.getElementById('tick').innerText = data.tick;
+            document.getElementById('alive').innerText = data.alive;
+            document.getElementById('best').innerText = data.best;
+            updateLeaderboard(data.bots);
+        });
+
+        function updateLeaderboard(bots) {
+            const sorted = [...bots].sort((a, b) => b.mass - a.mass).slice(0, 5);
+            const list = document.getElementById('lb-list');
+            list.innerHTML = sorted.map(b => 
+                `<div><span style="color:${b.c}">●</span> ${b.algo}: ${b.mass} (K:${b.k} D:${b.d})</div>`
+            ).join('');
+        }
+
+        function lerp(a, b, t) { return a + (b - a) * t; }
+
+        function draw() {
+            const now = Date.now();
+            const t = Math.min(1, (now - lastUpdateTime) / 33); // 30Hz approx 33ms
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // God View: Auto-scale to fit 2000x2000
+            const scale = Math.min(canvas.width, canvas.height) / ARENA_SIZE;
+            ctx.save();
+            ctx.translate(canvas.width/2 - ARENA_SIZE*scale/2, canvas.height/2 - ARENA_SIZE*scale/2);
+            ctx.scale(scale, scale);
+
+            // Draw arena bounds
+            ctx.strokeStyle = '#333';
+            ctx.strokeRect(0, 0, ARENA_SIZE, ARENA_SIZE);
+
+            // Draw food
+            ctx.fillStyle = '#fff';
+            state.food.forEach(f => {
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw bots with interpolation
+            state.bots.forEach(bot => {
+                const prev = prevState.bots.find(b => b.id === bot.id) || bot;
+                const x = lerp(prev.x, bot.x, t);
+                const y = lerp(prev.y, bot.y, t);
+                const r = lerp(prev.r, bot.r, t);
+
+                ctx.fillStyle = bot.c;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Bot Label
+                ctx.fillStyle = '#fff';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`[${bot.algo}]`, x, y - r - 20);
+                ctx.font = '12px Arial';
+                ctx.fillText(bot.m, x, y - r - 5);
+            });
+
+            ctx.restore();
+            requestAnimationFrame(draw);
+        }
+
+        requestAnimationFrame(draw);
+    </script>
+</body>
+</html>
